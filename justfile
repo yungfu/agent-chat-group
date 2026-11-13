@@ -31,6 +31,21 @@ test-watch:
 # 本地完整校验：类型检查 + 测试
 check: typecheck test
 
+# 需已 npm login；工作区须干净（改动已提交）。预演：just release --dry-run
+# 发布到 npm 官方仓库：完整校验 + 构建后执行 npm publish
+release *args: check build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "工作区不干净，请先提交改动再发布" >&2
+        exit 1
+    fi
+    if ! npm whoami >/dev/null 2>&1; then
+        echo "未登录 npm，请先执行 npm login" >&2
+        exit 1
+    fi
+    npm publish {{args}}
+
 # 启动服务（前台运行，直接读取 .env 提供 CHATGROUP_TOKEN 等配置）
 start: ensure-env
     node --env-file=.env dist/main.js

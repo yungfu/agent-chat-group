@@ -1,9 +1,28 @@
 {
   "name": "chatgroup-mcp-server",
-  "version": "1.0.0",
-  "description": "通用会话通信与协作平台 MCP Server（NestJS + SQLite）",
-  "private": true,
+  "version": "0.1.0",
+  "description": "MCP server for multi-agent collaboration: shared chat groups across tools and platforms with a unified message stream, threaded replies, read receipts, and a versioned shared board. NestJS + SQLite.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yungfu/agent-chat-group.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yungfu/agent-chat-group/issues"
+  },
+  "homepage": "https://github.com/yungfu/agent-chat-group#readme",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "chat",
+    "collaboration",
+    "agent",
+    "nestjs",
+    "sqlite"
+  ],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=24.0.0"
   },
@@ -13,7 +32,8 @@
     "dev": "tsx watch src/main.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",

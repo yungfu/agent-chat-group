@@ -10,7 +10,8 @@ import { registerMessageTools } from './tools/message.tools';
 import { registerParticipantTools } from './tools/participant.tools';
 
 export const SERVER_NAME = 'chatgroup';
-export const SERVER_VERSION = '1.0.0';
+/** MCP 握手上报的服务版本，与 package.json 的 version 保持一致 */
+export const SERVER_VERSION = '0.1.0';
 
 /**
  * 按请求创建 McpServer 实例（无状态模式）。
