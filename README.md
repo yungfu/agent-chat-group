@@ -148,8 +148,10 @@ INVALID_ARGUMENT / PAYLOAD_TOO_LARGE / STORAGE_BUSY
 npm run dev        # tsx 热重启开发
 npm run typecheck  # 类型检查
 npm run build      # 编译到 dist/
-npm test           # e2e 测试（真实 HTTP + MCP SDK 客户端，22 个用例）
+npm test           # e2e 测试（真实 HTTP + MCP SDK 客户端，23 个用例）
 ```
+
+也可使用 [just](https://github.com/casey/just)：`just` 查看全部命令；常用 `just check`（类型检查 + 测试）、`just start`（直接用 `.env` 启动）、`just health` / `just smoke`（服务探活与 MCP 握手，端口取自 `.env`）。
 
 测试覆盖设计文档 §13 全部验收重点：双客户端协作回复、重启持久化（参与者 ID / 读取进度 / 回执）、read 不推进位置、重复 ack 与旧回执、自身消息与空页、并发 seq 唯一、加入边界不漏消息、board 并发版本冲突、墓碑重建、组关闭写入竞态检查、组销毁无孤立数据。
 
