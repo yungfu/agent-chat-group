@@ -25,15 +25,21 @@ export function registerGroupTools(
     'group.create',
     {
       title: '创建聊天组',
-      description: `创建一个新的聊天组。创建不会自动加入，需另行调用 group.join。名称最多 ${nameMaxChars} 字符，说明最多 ${descriptionMaxBytes} 字节。`,
+      description: `创建一个新的聊天组。注意：仅创建，不会自动加入——当前会话此时还不是成员，不能收发消息；创建成功后请另行调用 group.join 加入（意图建立协作时应在同一工作流中连续调用 create + join）。名称最多 ${nameMaxChars} 字符，说明最多 ${descriptionMaxBytes} 字节。`,
       inputSchema: {
         name: displayNameSchema.describe('组名称'),
         description: declarationSchema.optional().describe('组说明'),
       },
-      outputSchema: { group: groupViewSchema },
+      outputSchema: { group: groupViewSchema, hint: z.string() },
     },
     async (args) =>
-      handle(() => ({ group: groups.create({ name: args.name, description: args.description }) })),
+      handle(() => {
+        const group = groups.create({ name: args.name, description: args.description });
+        return {
+          group,
+          hint: `组已创建（${group.group_id}），但仅完成创建：当前会话尚未加入，还不能收发消息。下一步请调用 group.join（group_id=${group.group_id}，display_name=你的展示名称）加入；加入后请保存返回的 participant_id，重连时继续使用原 ID，不要重复加入。`,
+        };
+      }),
   );
 
   server.registerTool(
@@ -71,7 +77,7 @@ export function registerGroupTools(
     'group.join',
     {
       title: '加入聊天组',
-      description: `以新身份加入组，服务端分配 participant_id（p_ 前缀），请妥善保存。加入时的读取位置为当前组序号，加入前的历史不算未读（可通过 message.list 查询）。展示名称最多 ${nameMaxChars} 字符，声明最多 ${descriptionMaxBytes} 字节。`,
+      description: `以新身份加入组，服务端分配 participant_id（p_ 前缀）。加入成功后请立即保存并向用户完整展示 participant_id、展示名与声明（结果 summary 已汇总）：participant_id 是本组内的通信标识，重连或服务重启后继续使用原 ID，不要重复加入（每次加入都会创建新身份）。加入时的读取位置为当前组序号，加入前的历史不算未读（可通过 message.list 查询）。展示名称最多 ${nameMaxChars} 字符，声明最多 ${descriptionMaxBytes} 字节。`,
       inputSchema: {
         group_id: groupIdSchema,
         display_name: displayNameSchema,
@@ -81,16 +87,29 @@ export function registerGroupTools(
         self: participantViewSchema,
         group: groupViewSchema,
         participants: z.array(participantViewSchema),
+        summary: z.string(),
       },
     },
     async (args) =>
-      handle(() =>
-        groups.join({
+      handle(() => {
+        const result = groups.join({
           groupId: args.group_id,
           displayName: args.display_name,
           declaration: args.declaration,
-        }),
-      ),
+        });
+        const members = result.participants
+          .map(
+            (p) =>
+              `${p.participant_id}（${p.display_name}${p.declaration ? `：${p.declaration}` : ''}）`,
+          )
+          .join('、');
+        const summary = [
+          `已加入组「${result.group.name}」（group_id=${result.group.group_id}）。`,
+          `自身身份：participant_id=${result.self.participant_id}，display_name=「${result.self.display_name}」，declaration=「${result.self.declaration}」。请立即妥善保存 participant_id 并告知用户：重连或服务重启后继续使用该 ID，不要重复加入（每次加入都会创建新身份）。`,
+          `当前成员（${result.participants.length} 名，含自身）：${members}`,
+        ].join('\n');
+        return { ...result, summary };
+      }),
   );
 
   server.registerTool(

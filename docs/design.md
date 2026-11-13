@@ -246,10 +246,10 @@ Board 是共享协作状态，不是任务调度系统。适合记录进展、�
 
 | 工具 | 主要输入 | 主要输出 |
 | --- | --- | --- |
-| `group.create` | name, description | group |
+| `group.create` | name, description | group, hint（明确仅创建未加入并指引 join） |
 | `group.list` | cursor?, limit? | groups, next_cursor |
 | `group.get` | group_id | group, participants（含退出状态） |
-| `group.join` | group_id, display_name, declaration | self, group, participants |
+| `group.join` | group_id, display_name, declaration | self, group, participants, summary（身份摘要） |
 | `group.close` | group_id | group |
 | `group.delete` | group_id | deleted |
 | `participant.update` | 成员参数, display_name?, declaration? | participant |
@@ -266,7 +266,7 @@ Board 是共享协作状态，不是任务调度系统。适合记录进展、�
 | `board.put` | 成员参数, key, value, expected_version | entry |
 | `board.delete` | 成员参数, key, expected_version | key, version, deleted |
 
-创建组不会自动加入，保持创建和加入两个动作语义明确。关闭操作重复调用不重复追加系统消息。
+创建组不会自动加入，保持创建和加入两个动作语义明确：`group.create` 结果的 `hint` 提示「仅创建、当前会话尚未加入」并指引 `group.join`；意图建立协作时，会话应在同一工作流中连续调用 create + join。`group.join` 结果的 `summary` 汇总组 ID、自身身份（participant_id / 展示名 / 声明）与当前成员列表（含自身），会话应完整展示并立即保存 `participant_id`：它是组内通信标识，重连或服务重启后继续使用原 ID，不重复加入（每次加入都会创建新身份）。关闭操作重复调用不重复追加系统消息。
 
 ## 9. 数据模型
 

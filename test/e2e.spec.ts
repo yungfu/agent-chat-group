@@ -42,6 +42,65 @@ async function newPair(name: string): Promise<{
   return { groupId: group.group_id, a: joinA.self.participant_id, b: joinB.self.participant_id };
 }
 
+describe('创建与加入的身份体验', () => {
+  it('group.create 结果明确提示仅创建未加入，并指引 join', async () => {
+    const created = await call(wsl, 'group.create', { name: '体验-创建提示' });
+    expect(created.group.group_id).toMatch(/^grp_/);
+    expect(created.group.status).toBe('active');
+    // hint 明确“仅创建、尚未加入”并给出下一步
+    expect(created.hint).toContain('尚未加入');
+    expect(created.hint).toContain('group.join');
+    expect(created.hint).toContain(created.group.group_id);
+    // 创建确实不自动加入：成员列表为空
+    const detail = await call(wsl, 'group.get', { group_id: created.group.group_id });
+    expect(detail.participants).toEqual([]);
+  });
+
+  it('group.join 返回身份摘要，self 与 participants 一致且含双成员信息', async () => {
+    const { group } = await call(wsl, 'group.create', { name: '体验-身份展示' });
+    const groupId = group.group_id;
+
+    const joinA = await call(wsl, 'group.join', {
+      group_id: groupId,
+      display_name: 'WSL 会话',
+      declaration: '负责修改代码',
+    });
+    // self 出现在成员列表内且字段一致
+    const selfInList = joinA.participants.find(
+      (p: any) => p.participant_id === joinA.self.participant_id,
+    );
+    expect(selfInList).toBeDefined();
+    expect(selfInList.display_name).toBe(joinA.self.display_name);
+    expect(selfInList.declaration).toBe(joinA.self.declaration);
+    // 摘要包含组 ID、自身身份（ID/名称/声明）与保存/复用指引
+    expect(joinA.summary).toContain(groupId);
+    expect(joinA.summary).toContain(joinA.self.participant_id);
+    expect(joinA.summary).toContain('WSL 会话');
+    expect(joinA.summary).toContain('负责修改代码');
+
+    // 第二个成员加入：participants 含双方完整信息，摘要同时覆盖两个成员
+    const joinB = await call(desktop, 'group.join', {
+      group_id: groupId,
+      display_name: '桌面验证',
+      declaration: '浏览器验证',
+    });
+    expect(joinB.participants).toHaveLength(2);
+    const bSelf = joinB.participants.find(
+      (p: any) => p.participant_id === joinB.self.participant_id,
+    );
+    const aFromB = joinB.participants.find(
+      (p: any) => p.participant_id === joinA.self.participant_id,
+    );
+    expect(bSelf.display_name).toBe('桌面验证');
+    expect(bSelf.declaration).toBe('浏览器验证');
+    expect(aFromB.display_name).toBe('WSL 会话');
+    expect(aFromB.declaration).toBe('负责修改代码');
+    expect(joinB.summary).toContain(joinA.self.participant_id);
+    expect(joinB.summary).toContain(joinB.self.participant_id);
+    expect(joinB.summary).toContain('当前成员（2 名，含自身）');
+  });
+});
+
 describe('典型协作流程（设计 §12）', () => {
   it('两个客户端加入同组，使用统一消息 ID 相互回复', async () => {
     const { groupId, a, b } = await newPair('协作流程');

@@ -66,6 +66,12 @@ node --env-file=.env dist/main.js
 - 传输为无状态 JSON 模式：每个 POST 独立处理，不绑定 HTTP 连接，`GET /mcp` 返回 405（不提供 SSE / 长轮询）。
 - 认证失败在 HTTP 层返回 401。
 
+### 首次接入与身份复用
+
+1. `group.create` 创建组（若还没有组）——**仅创建，当前会话尚未加入**，结果 `hint` 会提示下一步；
+2. 紧接着 `group.join` 加入：结果 `summary` 汇总组 ID、自身 `participant_id` / 展示名 / 声明与当前成员列表（含自身），会话答复时应完整展示，不能只说「已加入」；
+3. 立即保存 `self.participant_id` 并告知用户：重连或服务重启后**继续使用原 ID**，不要重复加入（每次加入都会创建新身份）；身份丢失时可用 `group.get` 查询成员列表恢复。
+
 ## MCP 工具（19 个）
 
 成员操作统一携带 `group_id` 和 `participant_id`；组管理只需固定 Token。
@@ -74,14 +80,16 @@ node --env-file=.env dist/main.js
 
 | 工具 | 主要输入 | 主要输出 |
 | --- | --- | --- |
-| `group.create` | name, description? | group |
+| `group.create` | name, description? | group, hint（仅创建未加入提示） |
 | `group.list` | cursor?, limit? | groups, next_cursor |
 | `group.get` | group_id | group, participants（含退出状态） |
-| `group.join` | group_id, display_name, declaration? | self, group, participants |
+| `group.join` | group_id, display_name, declaration? | self, group, participants, summary（身份摘要） |
 | `group.close` | group_id | group |
 | `group.delete` | group_id | deleted |
 
-创建组不会自动加入。生命周期 `active → closed → 物理删除`；关闭后禁止加入与写入、允许读取与确认；重复关闭幂等；销毁删除全部关联数据。
+创建组不会自动加入：`group.create` 的 `hint` 明确提示「仅创建、当前会话尚未加入」并指引调用 `group.join`；意图建立协作时应在同一工作流中连续调用 create + join。`group.join` 的 `summary` 汇总组 ID、自身 `participant_id` / 展示名 / 声明与当前成员（含自身），会话应完整展示并保存 `participant_id`。
+
+生命周期 `active → closed → 物理删除`；关闭后禁止加入与写入、允许读取与确认；重复关闭幂等；销毁删除全部关联数据。
 
 ### 参与者
 
@@ -90,7 +98,7 @@ node --env-file=.env dist/main.js
 | `participant.update` | 成员参数, display_name?, declaration? | participant |
 | `participant.leave` | 成员参数 | participant |
 
-`participant_id` 是通信标识而非凭证；重连可继续使用原 ID（请妥善保存）；已退出身份保留用于历史引用但不能继续操作。
+`participant_id` 是通信标识而非凭证；加入成功后立即保存（`group.join` 返回的 `self.participant_id`），重连或服务重启后继续使用原 ID，不要重复加入（每次加入都会创建新身份）；已退出身份保留用于历史引用但不能继续操作。
 
 ### 消息
 
@@ -148,12 +156,12 @@ INVALID_ARGUMENT / PAYLOAD_TOO_LARGE / STORAGE_BUSY
 npm run dev        # tsx 热重启开发
 npm run typecheck  # 类型检查
 npm run build      # 编译到 dist/
-npm test           # e2e 测试（真实 HTTP + MCP SDK 客户端，23 个用例）
+npm test           # e2e 测试（真实 HTTP + MCP SDK 客户端，25 个用例）
 ```
 
 也可使用 [just](https://github.com/casey/just)：`just` 查看全部命令；常用 `just check`（类型检查 + 测试）、`just start`（直接用 `.env` 启动）、`just health` / `just smoke`（服务探活与 MCP 握手，端口取自 `.env`）。
 
-测试覆盖设计文档 §13 全部验收重点：双客户端协作回复、重启持久化（参与者 ID / 读取进度 / 回执）、read 不推进位置、重复 ack 与旧回执、自身消息与空页、并发 seq 唯一、加入边界不漏消息、board 并发版本冲突、墓碑重建、组关闭写入竞态检查、组销毁无孤立数据。
+测试覆盖设计文档 §13 全部验收重点：双客户端协作回复、重启持久化（参与者 ID / 读取进度 / 回执）、read 不推进位置、重复 ack 与旧回执、自身消息与空页、并发 seq 唯一、加入边界不漏消息、board 并发版本冲突、墓碑重建、组关闭写入竞态检查、组销毁无孤立数据、创建提示与 join 身份摘要（self 与 participants 一致、双成员信息）。
 
 ## 目录结构
 
