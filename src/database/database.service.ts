@@ -10,11 +10,27 @@ type Row = Record<string, unknown>;
 
 export type SqlParam = string | number | null;
 
+const SQLITE_BUSY = 5;
+const SQLITE_LOCKED = 6;
+
+/** 识别 SQLite busy / locked 错误：优先看数值错误码（兼容扩展码），文本作兜底 */
+function isBusyOrLocked(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  // node:sqlite 抛出的错误带 errcode（SQLite 结果码）与 code（ERR_SQLITE_ERROR），
+  // message 可能是 "database is locked"，不含 SQLITE_BUSY 字样
+  const errcode = (error as { errcode?: unknown }).errcode;
+  if (typeof errcode === 'number') {
+    const baseCode = errcode & 0xff; // 扩展码低 8 位是基础码，如 SQLITE_BUSY_SNAPSHOT(517)
+    return baseCode === SQLITE_BUSY || baseCode === SQLITE_LOCKED;
+  }
+  return /SQLITE_BUSY|SQLITE_LOCKED|database is locked/i.test(error.message);
+}
+
 /** SQLite busy / locked 时抛出的业务错误 */
 function mapSqliteError(error: unknown): unknown {
-  if (error instanceof Error && /SQLITE_BUSY|SQLITE_LOCKED/.test(error.message)) {
+  if (isBusyOrLocked(error)) {
     return new BusinessError('STORAGE_BUSY', '存储繁忙，请稍后重试', {
-      reason: error.message,
+      reason: error instanceof Error ? error.message : String(error),
     });
   }
   return error;
@@ -42,7 +58,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       PRAGMA journal_mode = WAL;
       PRAGMA synchronous = NORMAL;
       PRAGMA foreign_keys = ON;
-      PRAGMA busy_timeout = 5000;
+      PRAGMA busy_timeout = ${this.config.busyTimeoutMs};
     `);
     this.migrate();
   }

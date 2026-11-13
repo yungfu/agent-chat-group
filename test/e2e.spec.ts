@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { call, callExpectError, makeClient, startApp, tempDbDir, TestApp } from './helpers';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
@@ -388,21 +389,26 @@ describe('Board 版本并发（设计 §7）', () => {
     expect(created.entry.version).toBe(1);
     expect(created.entry.updated_by).toBe(a);
 
-    const [r1, r2] = await Promise.all([
+    // 两个携带相同 expected_version 的并发写入：不假设到达顺序，恰好一个成功
+    const outcomes = await Promise.allSettled([
       call(wsl, 'board.put', {
         group_id: groupId, participant_id: a, key: 'progress/overall', value: { status: 'by-a' }, expected_version: 1,
       }),
-      callExpectError(desktop, 'board.put', {
+      call(desktop, 'board.put', {
         group_id: groupId, participant_id: b, key: 'progress/overall', value: { status: 'by-b' }, expected_version: 1,
       }),
     ]);
-    expect(r1.entry.version).toBe(2);
-    expect(r2.code).toBe('VERSION_CONFLICT');
-    expect(r2.details?.actual_version).toBe(2);
+    const fulfilled = outcomes.filter((o) => o.status === 'fulfilled');
+    const rejected = outcomes.filter((o) => o.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(String((rejected[0] as PromiseRejectedResult).reason.message)).toContain('VERSION_CONFLICT');
 
+    const winner = (fulfilled[0] as PromiseFulfilledResult<any>).value;
+    expect(winner.entry.version).toBe(2);
     const final = await call(desktop, 'board.get', { group_id: groupId, participant_id: b, key: 'progress/overall' });
-    expect(final.entry.value).toEqual({ status: 'by-a' });
     expect(final.entry.version).toBe(2);
+    expect(final.entry.value).toEqual({ status: winner.entry.value.status });
   });
 
   it('删除保留墓碑，重建必须携带墓碑版本且旧版本不再生效', async () => {
@@ -531,28 +537,75 @@ describe('组生命周期（设计 §4）', () => {
     expect(errAgain.code).toBe('GROUP_NOT_FOUND');
   });
 
-  it('group.list 分页且包含已关闭组', async () => {
+  it('group.list 分页不重不漏，且包含已关闭组', async () => {
     const { group: g1 } = await call(wsl, 'group.create', { name: '列表 A' });
     const { group: g2 } = await call(wsl, 'group.create', { name: '列表 B' });
     await call(wsl, 'group.close', { group_id: g1.group_id });
 
-    // 游标分页：两页之间无重叠、无遗漏
-    const page1 = await call(desktop, 'group.list', { limit: 2 });
-    expect(page1.groups).toHaveLength(2);
-    expect(page1.next_cursor).toBeTruthy();
-    const page1Ids = page1.groups.map((g: any) => g.group_id);
-    let rest = await call(desktop, 'group.list', { limit: 2, cursor: page1.next_cursor });
+    // 回归：limit=1 逐页遍历，必须覆盖全部组（游标取实际返回页末条，不跳页）
+    const walked: string[] = [];
+    let cursor: string | undefined;
     while (true) {
-      expect(rest.groups.map((g: any) => g.group_id).filter((id: string) => page1Ids.includes(id))).toEqual([]);
-      if (!rest.next_cursor) break;
-      rest = await call(desktop, 'group.list', { limit: 2, cursor: rest.next_cursor });
+      const args: Record<string, unknown> = { limit: 1 };
+      if (cursor !== undefined) args.cursor = cursor;
+      const page: { groups: { group_id: string }[]; next_cursor: string | null } = await call(
+        desktop,
+        'group.list',
+        args,
+      );
+      expect(page.groups).toHaveLength(1);
+      walked.push(page.groups[0].group_id);
+      if (!page.next_cursor) break;
+      cursor = page.next_cursor;
     }
-    // 全量中能找到两个新组，且 g1 状态为 closed
     const all = await call(desktop, 'group.list', { limit: 100 });
+    expect(walked).toEqual(all.groups.map((g: any) => g.group_id)); // 顺序一致且无遗漏
+    expect(new Set(walked).size).toBe(walked.length); // 无重复
+
     const found1 = all.groups.find((g: any) => g.group_id === g1.group_id);
     const found2 = all.groups.find((g: any) => g.group_id === g2.group_id);
     expect(found1?.status).toBe('closed');
     expect(found2?.status).toBe('active');
+  });
+});
+
+describe('存储并发（设计 §9、§11）', () => {
+  it('外部连接持有写锁时返回 STORAGE_BUSY，锁释放后写入恢复', async () => {
+    const dir = tempDbDir('chatgroup-busy-');
+    const busyApp = await startApp(join(dir, 'busy.db'), 'test-token', { busyTimeoutMs: 150 });
+    let client: Client | undefined;
+    try {
+      client = await makeClient(busyApp.port);
+      const { group } = await call(client, 'group.create', { name: '锁冲突组' });
+      const joined = await call(client, 'group.join', { group_id: group.group_id, display_name: 'A' });
+
+      // 外部连接获取写锁并保持
+      const ext = new DatabaseSync(join(dir, 'busy.db'));
+      ext.exec('BEGIN IMMEDIATE');
+      ext.prepare('UPDATE groups SET name = name WHERE id = ?').run(group.group_id);
+
+      // node:sqlite 锁冲突 message 是 "database is locked"（errcode 5），
+      // 必须映射为约定的 STORAGE_BUSY 稳定错误码
+      const err = await callExpectError(client, 'message.send', {
+        group_id: group.group_id,
+        participant_id: joined.self.participant_id,
+        text: '应该失败',
+      });
+      expect(err.code).toBe('STORAGE_BUSY');
+
+      ext.exec('ROLLBACK');
+      ext.close();
+
+      const recovered = await call(client, 'message.send', {
+        group_id: group.group_id,
+        participant_id: joined.self.participant_id,
+        text: '锁释放后成功',
+      });
+      expect(recovered.message.text).toBe('锁释放后成功');
+    } finally {
+      await client?.close();
+      await busyApp.app.close();
+    }
   });
 });
 

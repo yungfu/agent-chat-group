@@ -99,12 +99,10 @@ export class GroupsService {
     const limit = this.normalizeLimit(args.limit);
     return this.db.tx(
       () => {
-        const { groups, lastRowid } = this.groupsRepo.listAfterRowid(afterRowid, limit + 1);
-        const page = groups.slice(0, limit);
-        const hasMore = groups.length > limit;
+        const { groups, nextRowid } = this.groupsRepo.listPage(afterRowid, limit);
         return {
-          groups: page.map(toGroupView),
-          next_cursor: hasMore ? encodeCursor(String(lastRowid)) : null,
+          groups: groups.map(toGroupView),
+          next_cursor: nextRowid !== null ? encodeCursor(String(nextRowid)) : null,
         };
       },
       'deferred',

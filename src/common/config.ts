@@ -33,6 +33,8 @@ export interface ChatgroupConfig {
   host: string;
   /** SQLite 数据文件路径 */
   dbPath: string;
+  /** SQLite busy_timeout（毫秒），超时后返回 STORAGE_BUSY */
+  busyTimeoutMs: number;
   limits: LimitConfig;
 }
 
@@ -72,6 +74,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ChatgroupConfi
     port: readInt(env, 'CHATGROUP_PORT', 3000),
     host: (env.CHATGROUP_HOST ?? '0.0.0.0').trim(),
     dbPath: (env.CHATGROUP_DB_PATH ?? 'data/chatgroup.db').trim(),
+    busyTimeoutMs: readInt(env, 'CHATGROUP_BUSY_TIMEOUT_MS', 5000, 0),
     limits,
   };
 }

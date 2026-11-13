@@ -131,16 +131,23 @@ export class GroupsRepository {
     this.db.run('DELETE FROM groups WHERE id = ?', groupId);
   }
 
-  /** 按 rowid（创建顺序）游标分页；afterRowid 传 0 表示从头开始 */
-  listAfterRowid(afterRowid: number, limit: number): { groups: Group[]; lastRowid: number } {
+  /**
+   * 按 rowid（创建顺序）游标分页；afterRowid 传 0 表示从头开始。
+   * 内部多取一条判断是否还有下一页；next_rowid 取自实际返回页的末条记录，
+   * 作为下一页的 afterRowid，保证不重不漏。
+   */
+  listPage(afterRowid: number, limit: number): { groups: Group[]; nextRowid: number | null } {
     const rows = this.db.all(
       'SELECT rowid AS _rowid_, * FROM groups WHERE rowid > ? ORDER BY rowid ASC LIMIT ?',
       afterRowid,
-      limit,
+      limit + 1,
     );
-    const groups = rows.map(mapGroup);
-    const lastRowid = rows.length ? asNumber(rows[rows.length - 1]._rowid_) : afterRowid;
-    return { groups, lastRowid };
+    const pageRows = rows.slice(0, limit);
+    const hasMore = rows.length > limit;
+    const nextRowid = hasMore && pageRows.length > 0
+      ? asNumber(pageRows[pageRows.length - 1]._rowid_)
+      : null;
+    return { groups: pageRows.map(mapGroup), nextRowid };
   }
 }
 

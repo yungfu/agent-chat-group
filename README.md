@@ -34,6 +34,7 @@ node --env-file=.env dist/main.js
 | `CHATGROUP_PORT` | 否 | `3000` | 监听端口 |
 | `CHATGROUP_HOST` | 否 | `0.0.0.0` | 监听地址 |
 | `CHATGROUP_DB_PATH` | 否 | `data/chatgroup.db` | SQLite 文件路径 |
+| `CHATGROUP_BUSY_TIMEOUT_MS` | 否 | `5000` | SQLite busy_timeout；超时后写冲突返回 `STORAGE_BUSY` |
 | `CHATGROUP_PAGE_DEFAULT` / `CHATGROUP_PAGE_MAX` | 否 | `50` / `100` | 分页默认值 / 上限 |
 | `CHATGROUP_TEXT_MAX_BYTES` | 否 | `32768` | 消息正文上限（UTF-8 字节） |
 | `CHATGROUP_BOARD_VALUE_MAX_BYTES` | 否 | `65536` | board value JSON 上限 |

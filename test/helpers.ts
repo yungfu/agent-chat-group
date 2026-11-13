@@ -16,10 +16,19 @@ export interface TestApp {
 }
 
 /** 启动真实 HTTP 服务（随机端口 + 独立 SQLite 文件） */
-export async function startApp(dbPath: string, token = 'test-token'): Promise<TestApp> {
+export async function startApp(
+  dbPath: string,
+  token = 'test-token',
+  overrides: { busyTimeoutMs?: number } = {},
+): Promise<TestApp> {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(CONFIG)
-    .useValue({ ...loadConfig({ CHATGROUP_TOKEN: token }), dbPath, host: '127.0.0.1' })
+    .useValue({
+      ...loadConfig({ CHATGROUP_TOKEN: token }),
+      dbPath,
+      host: '127.0.0.1',
+      ...overrides,
+    })
     .compile();
   const app = moduleRef.createNestApplication<NestExpressApplication>({
     bodyParser: false,
